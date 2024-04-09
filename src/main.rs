@@ -1,138 +1,15 @@
-use wgpu::util::DeviceExt;
+use wgpu::{util::DeviceExt, TextureViewDimension};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
 
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 2],
-}
-
 const WINDOW_SIZE: winit::dpi::PhysicalSize<f32> = winit::dpi::PhysicalSize {
     width: 600.0,
     height: 400.0,
 };
 
-// QUAD
-const VERTICES: [Vertex; 4] = [
-    Vertex {
-        position: [-1.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, -1.0],
-    },
-    Vertex {
-        position: [-1.0, -1.0],
-    },
-];
-const INDICES: [u16; 6] = [0, 1, 2, 0, 2, 3];
-
-struct Color {
-    r: f32,
-    g: f32,
-    b: f32,
-    a: f32,
-}
-impl Default for Color {
-    fn default() -> Self {
-        Self {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-            a: 1.0,
-        }
-    }
-}
-impl Color {
-    fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
-        Self { r, g, b, a }
-    }
-    fn with_alpha(&mut self, a: f32) -> &mut Self {
-        self.a = a;
-        self
-    }
-
-    const WHITE: Self = Self {
-        r: 1.0,
-        g: 1.0,
-        b: 1.0,
-        a: 1.0,
-    };
-    const RED: Self = Self {
-        r: 1.0,
-        g: 0.0,
-        b: 0.0,
-        a: 1.0,
-    };
-    const GREEN: Self = Self {
-        r: 0.0,
-        g: 1.0,
-        b: 0.0,
-        a: 1.0,
-    };
-    const BLUE: Self = Self {
-        r: 0.0,
-        g: 0.0,
-        b: 1.0,
-        a: 1.0,
-    };
-}
-
-#[derive(Default)]
-struct Quad {
-    /// Size of the quad given in physical pixels
-    size: winit::dpi::PhysicalSize<f32>,
-    /// Position of quad given in physical pixles
-    position: winit::dpi::PhysicalPosition<f32>,
-    color: Color,
-}
-impl Quad {
-    pub fn new() -> Self {
-        Default::default()
-    }
-    pub fn with_size(&mut self, width: f32, height: f32) -> &mut Self {
-        self.size = winit::dpi::PhysicalSize::new(width, height);
-        self
-    }
-    pub fn with_position(&mut self, x: f32, y: f32) -> &mut Self {
-        self.position = winit::dpi::PhysicalPosition::new(x, y);
-        self
-    }
-    pub fn with_color(&mut self, color: Color) -> &mut Self {
-        self.color = color;
-        self
-    }
-    fn raw(&mut self) -> QuadRaw {
-        let position = [
-            (self.position.x / WINDOW_SIZE.width * 2.0) - 1.0,
-            (self.position.y / WINDOW_SIZE.height * -2.0) + 1.0,
-        ];
-        let scale = [
-            self.size.width / WINDOW_SIZE.width,
-            self.size.height / WINDOW_SIZE.height,
-        ];
-        let color = [self.color.r, self.color.g, self.color.b, self.color.a];
-        QuadRaw {
-            position,
-            scale,
-            color,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct QuadRaw {
-    position: [f32; 2],
-    scale: [f32; 2],
-    color: [f32; 4],
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -147,48 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    // WGPU inital setup
-    let instance_desc = wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
-        flags: wgpu::InstanceFlags::all(),
-        dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
-        gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
-    };
-    let instance = wgpu::Instance::new(instance_desc);
-    let surface = instance.create_surface(window).unwrap();
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
-            compatible_surface: Some(&surface),
-        })
-        .await
-        .unwrap();
-
-    let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-            },
-            None,
-        )
-        .await
-        .unwrap();
-    surface.configure(
-        &device,
-        &wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: wgpu::TextureFormat::Bgra8Unorm,
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            desired_maximum_frame_latency: 2,
-            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
-            view_formats: vec![],
-        },
-    );
+    let gfx = Gfx::new(window);
 
     // Setup buffers, shaders, and render pipeline for rendering a triangle!!
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -224,10 +60,95 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         contents: bytemuck::cast_slice(&instances),
     });
 
+    // Load test texture and add to bind group
+    let tex_bytes = include_bytes!("testtexture.png");
+    let tex_image = image::load_from_memory(tex_bytes).unwrap();
+    let tex_rgba = tex_image.to_rgba8();
+    use image::GenericImageView;
+    let tex_dims = tex_image.dimensions();
+    let tex_size = wgpu::Extent3d {
+        width: tex_dims.0,
+        height: tex_dims.1,
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: tex_size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &tex_rgba,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * tex_dims.0),
+            rows_per_image: Some(tex_dims.1),
+        },
+        tex_size,
+    );
+    let tex_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let tex_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: None,
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                // This should match the filterable field of the
+                // corresponding Texture entry above.
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&tex_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&tex_sampler),
+            },
+        ],
+    });
+
     let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[],
+        bind_group_layouts: &[&bind_group_layout],
         push_constant_ranges: &[],
     });
     let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -307,42 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             elwt.exit();
         }
         Event::AboutToWait => {
-            let output = surface.get_current_texture().expect("qweqwe");
-            let view = output
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.0,
-                                g: 0.0,
-                                b: 0.0,
-                                a: 1.0,
-                            }),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-                render_pass.set_pipeline(&render_pipeline);
-                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
-                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..instances.len() as u32);
-            }
 
-            let command_buffer = encoder.finish();
-            queue.submit(std::iter::once(command_buffer));
-            output.present();
         }
         Event::WindowEvent {
             event: WindowEvent::CursorMoved { position, .. },
