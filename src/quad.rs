@@ -1,7 +1,6 @@
 use wgpu::util::DeviceExt;
-
 use crate::color::Color;
-use crate::gfx::Gfx;
+use crate::gfx::{ Gfx, GfxRenderData, Renderer };
 use crate::vertex::Vertex;
 
 const VERTICES: [Vertex; 4] = [
@@ -57,9 +56,11 @@ pub struct QuadRenderer {
     index_buffer: wgpu::Buffer,
     instance_buffer: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
+    quads: Vec<Quad>,
 }
 impl QuadRenderer {
     pub fn new(gfx: &mut Gfx) -> Self {
+        let gfx = gfx.data.borrow_mut();
         let vertex_buffer = gfx
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -158,25 +159,33 @@ impl QuadRenderer {
             index_buffer,
             instance_buffer,
             pipeline,
+            quads: vec![],
         }
     }
-    pub fn render<'a, 'b>(
-        &'a mut self,
-        gfx: &'a mut Gfx,
-        render_pass: &'b mut wgpu::RenderPass<'a>,
-        quads: &Vec<Quad>,
-    ) {
-        let instances = quads
+    pub fn add(&mut self, quad: Quad) {
+        self.quads.push(quad);
+    }
+}
+impl Renderer for QuadRenderer {
+    fn render<'a, 'b>(
+        &'a self,
+        data: &'a GfxRenderData,
+        render_pass: &mut wgpu::RenderPass<'b>,
+    )
+    where
+        'a: 'b
+    {
+        let instances = self.quads
             .iter()
             .map(|quad| quad.into())
             .collect::<Vec<QuadRaw>>();
-        gfx.queue
+        data.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.set_bind_group(0, &gfx.aspect_ratio_bind_group, &[]);
+        render_pass.set_bind_group(0, &data.aspect_ratio_bind_group, &[]);
         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..instances.len() as u32);
     }
 }
