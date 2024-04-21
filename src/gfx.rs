@@ -2,7 +2,9 @@ use std::cell::RefCell;
 use wgpu::util::DeviceExt;
 
 pub trait Renderer {
-    fn render<'a, 'b>(&'a self, data: &'a GfxRenderData, render_pass: &mut wgpu::RenderPass<'b>) where 'a: 'b;
+    fn render<'a, 'b>(&'a self, data: &'a GfxRenderData, render_pass: &mut wgpu::RenderPass<'b>)
+    where
+        'a: 'b;
 }
 pub struct GfxRenderData<'a> {
     pub size: winit::dpi::PhysicalSize<u32>,
@@ -11,6 +13,7 @@ pub struct GfxRenderData<'a> {
     pub surface: wgpu::Surface<'a>,
     pub aspect_ratio_bind_group: wgpu::BindGroup,
     pub aspect_ratio_bind_group_layout: wgpu::BindGroupLayout,
+    pub texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 pub struct Gfx<'a> {
@@ -83,9 +86,31 @@ impl<'a> Gfx<'a> {
         let aspect_ratio_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &aspect_ratio_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: aspect_ratio_buffer.as_entire_binding(),
+            }],
+        });
+        let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: aspect_ratio_buffer.as_entire_binding() },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
+            label: Some("texture_bind_group_layout"),
         });
         let data = GfxRenderData {
             size,
@@ -94,6 +119,7 @@ impl<'a> Gfx<'a> {
             surface,
             aspect_ratio_bind_group,
             aspect_ratio_bind_group_layout,
+            texture_bind_group_layout,
         };
         Self {
             data: RefCell::new(data),
@@ -106,7 +132,10 @@ impl<'a> Gfx<'a> {
     }
     pub fn draw(&mut self) {
         let data = self.data.borrow_mut();
-        let output = data.surface.get_current_texture().expect("Failed to get output texture");
+        let output = data
+            .surface
+            .get_current_texture()
+            .expect("Failed to get output texture");
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());

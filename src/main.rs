@@ -6,7 +6,8 @@ use winit::{
 
 use gfxperiment::color::Color;
 use gfxperiment::gfx::Gfx;
-use gfxperiment::quad::{ Quad, QuadRenderer };
+use gfxperiment::quad::{Quad, QuadRenderer, TexturedQuad, TexturedQuadRenderer };
+use gfxperiment::texture::Texture;
 
 const WINDOW_SIZE: winit::dpi::PhysicalSize<u32> = winit::dpi::PhysicalSize {
     width: 600,
@@ -26,17 +27,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut gfx = Gfx::new(&window).await;
-    let mut quad_renderer = Box::new(QuadRenderer::new(&mut gfx));
 
+    let mut quad_renderer = Box::new(QuadRenderer::new(&mut gfx));
     let quads = vec![
-        Quad { pos: [100., 100.], width: 30., height: 30., color: Color::WHITE },
-        Quad { pos: [200., 200.], width: 40., height: 60., color: Color::RED },
-        Quad { pos: [500., 300.], width: 80., height: 40., color: Color::BLUE },
+        Quad {
+            pos: [100., 100.],
+            width: 30.,
+            height: 30.,
+            color: Color::WHITE,
+        },
+        Quad {
+            pos: [200., 200.],
+            width: 40.,
+            height: 60.,
+            color: Color::RED,
+        },
+        Quad {
+            pos: [500., 300.],
+            width: 80.,
+            height: 40.,
+            color: Color::BLUE,
+        },
     ];
     for quad in quads {
         quad_renderer.add(quad);
     }
     gfx.add_renderer(quad_renderer);
+
+    let mut tex_quad_renderer = Box::new(TexturedQuadRenderer::new(&mut gfx));
+    let tex_quads = vec![
+        TexturedQuad {
+            pos: [400., 150.],
+            width: 128.,
+            height: 128.,
+            texture: Texture::from_file(&mut gfx, "./testtexture.png"),
+        },
+    ];
+    for tex_quad in tex_quads {
+        tex_quad_renderer.add(tex_quad);
+    }
+    gfx.add_renderer(tex_quad_renderer);
 
     Ok(event_loop.run(move |event, elwt| match event {
         Event::WindowEvent {
